@@ -116,8 +116,8 @@ async login(){const n=$('#n').value,p=$('#p').value.trim(),r=$('#r').value;
  if(!/^\d{4}$/.test(p))return msg('Enter your 4-digit PIN.');
  if(r==='sv'&&![...CFG.supervisors,...CFG.admins].includes(n))return msg('Only supervisors can create lists: '+CFG.supervisors.join(', '));
  if(r==='ad'&&!CFG.admins.includes(n))return msg('Admin is only for: '+CFG.admins.join(', '));
- const ok=await api(CFG.workers+'?select=name&name=eq.'+encodeURIComponent(n)+'&pin=eq.'+encodeURIComponent(p));
- if(!ok.length)return msg('Wrong PIN for that name.');
+ const ok=await api('rpc/dc_check_pin',{method:'POST',body:JSON.stringify({p_name:n,p_pin:p})});
+ if(ok!==true)return msg('Wrong PIN for that name.');
  me={name:n,pin:p,role:r};await load();render()},
 out(){me=null;render()},
 async refresh(){await load();render()},
