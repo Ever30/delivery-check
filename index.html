@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Delivery Check</title>
+<style>
+:root{--bg:#e8ecef;--card:#fff;--ink:#14202b;--mut:#5b6875;--line:#d3dae0;--tile:#eef1f4;--acc:#f2b705;--ok:#1b7a3d;--okb:#dff2e4;--wn:#8a5a00;--wnb:#fdf0c8;--bd:#b3261e;--bdb:#fbe1de}
+@media (prefers-color-scheme:dark){:root{--bg:#10171d;--card:#1a242d;--ink:#eaeff3;--mut:#9aa7b3;--line:#2c3945;--tile:#243039;--ok:#6fd08f;--okb:#17331f;--wn:#f2c14e;--wnb:#3a2f10;--bd:#ff8a80;--bdb:#3c1b19}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 "Barlow",system-ui,Arial,sans-serif}
+main{max-width:720px;margin:0 auto;padding:12px 14px 40px}
+h1,h2,h3{font-family:"Barlow Semi Condensed","Arial Narrow",Arial,sans-serif;margin:0}
+h1{font-size:26px}h2{font-size:21px;margin:18px 0 8px}h3{font-size:17px}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0 10px;border-bottom:4px solid var(--acc);margin-bottom:12px}
+.sm{font-size:14px;color:var(--mut)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin:10px 0}
+.row{display:flex;gap:12px;align-items:flex-start}
+.t{flex:none;width:60px;height:60px;border-radius:8px;background:var(--tile);display:grid;place-items:center;font-size:32px;overflow:hidden}
+.t img{width:100%;height:100%;object-fit:cover}
+.g{flex:1;min-width:0}
+.q{font:700 22px "Barlow Semi Condensed",Arial,sans-serif}
+input,select{width:100%;font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px}
+input[type=number]{width:84px;text-align:center}
+label{display:block;font-weight:600;margin:10px 0 4px}
+button,.btn{font:600 16px Arial,sans-serif;border:2px solid var(--ink);background:var(--card);color:var(--ink);border-radius:8px;padding:10px 14px;cursor:pointer;min-height:44px}
+button.p{background:var(--ink);color:var(--bg)}
+button.s{background:var(--acc);border-color:var(--acc);color:#14202b}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+.seg{display:flex;gap:6px;margin-top:8px}
+.seg button{flex:1;padding:8px 6px;min-height:40px}
+.seg .on.ok{background:var(--ok);border-color:var(--ok);color:#fff}
+.seg .on.wn{background:var(--acc);border-color:var(--acc);color:#14202b}
+.seg .on.bd{background:var(--bd);border-color:var(--bd);color:#fff}
+.tag{display:inline-block;border-radius:6px;padding:2px 8px;font-weight:600;font-size:14px}
+.tag.ok{background:var(--okb);color:var(--ok)}.tag.wn{background:var(--wnb);color:var(--wn)}.tag.bd{background:var(--bdb);color:var(--bd)}
+.pin{-webkit-text-security:disc;letter-spacing:4px}
+.err{color:var(--bd);font-weight:600;min-height:22px;margin:8px 0}
+.sign{border:2px dashed var(--ink);border-radius:10px;padding:12px;margin-top:16px}
+.wrap{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:14px}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+pre{white-space:pre-wrap;background:var(--tile);padding:10px;border-radius:8px;font:13px/1.4 ui-monospace,Menlo,monospace}
+.ph{max-width:100%;max-height:200px;border-radius:8px;margin-top:8px;display:block}
+</style></head><body><main id="app"><p>Loading…</p></main>
+<script>
+/* ===== SETTINGS: replace YOUR-PROJECT-ID with your Supabase project URL ===== */
+const CFG={
+  url:'https://uizqnhzvsedqlccepucy.supabase.co',
+  key:'sb_publishable_HgOh_eN_YhnL5DOQI6_pCg_WlCXyv-2',
+  workers:'workers',            // table with the columns: name, pin
+  admins:['Everardo G.'],       // names allowed to use the Admin role
+  supervisors:['Everardo G.']   // names allowed to create lists (admins can too)
+};
+/* ============================================================================ */
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function api(p,o={}){const r=await fetch(CFG.url+'/rest/v1/'+p,{...o,headers:{apikey:CFG.key,'Content-Type':'application/json',Prefer:'return=representation'}});
+ if(!r.ok)throw new Error(r.status+' '+(await r.text()).slice(0,160));return r.status===204?null:r.json()}
+const S={items:[],workers:[],d:null,hist:[]};let me=null;
+const norm=r=>{r.wh=r.wh_by?{by:r.wh_by,at:r.wh_at}:null;r.rc=r.rc_by?{by:r.rc_by,at:r.rc_at}:null;return r};
+async function load(){const [it,ac,hi]=await Promise.all([
+ api('dc_items?select=*&order=name'),
+ api('dc_deliveries?select=*&status=in.(new,loaded)&order=id.desc&limit=1'),
+ api('dc_deliveries?select=*&status=eq.closed&order=id.desc&limit=30')]);
+ S.items=it;S.d=ac[0]?norm(ac[0]):null;S.hist=hi.map(norm)}
+const item=id=>S.items.find(i=>i.id===id)||{name:id,desc:'',icon:'📦',photo:''};
+const now=()=>new Date().toLocaleString();
+const tile=i=>`<div class="t">${i.photo?`<img src="${i.photo}" alt="${esc(i.name)}">`:esc(i.icon)}</div>`;
+const idesc=i=>i.descr||'';
+function msg(t,id){const m=$('#'+(id||'m'));if(m)m.textContent=t}
+function cls(l){if(l.st==='miss')return['Missing','bd'];if(l.st==='dmg')return['Damaged','bd'];if(l.recv!=null&&l.recv<l.sent)return['Short','wn'];if(l.sent<l.req)return['Sent short','wn'];return['OK','ok']}
+function summary(d){const iss=d.lines.filter(l=>cls(l)[1]!=='ok');
+ let t=`DELIVERY REPORT\nProject: ${d.project}\nLoaded by: ${d.wh?d.wh.by+' ('+d.wh.at+')':'-'}\nReceived by: ${d.rc?d.rc.by+' ('+d.rc.at+')':'-'}\nItems: ${d.lines.length}, with issues: ${iss.length}\n`;
+ iss.forEach(l=>{t+=`- ${item(l.id).name}: requested ${l.req}, sent ${l.sent}, received ${l.recv==null?'?':l.recv} [${cls(l)[0]}]${l.note?' - '+l.note:''}\n`});return t}
+function reportHTML(d){return`<div class="wrap"><table><tr><th>Item</th><th>Req</th><th>Sent</th><th>Got</th><th>Status</th><th>Note</th></tr>${d.lines.map(l=>{const c=cls(l);return`<tr><td>${esc(item(l.id).name)}</td><td>${l.req}</td><td>${l.sent}</td><td>${l.recv==null?'-':l.recv}</td><td><span class="tag ${c[1]}">${c[0]}</span></td><td>${esc(l.note)}</td></tr>`}).join('')}</table></div>${d.truck?`<img class="ph" src="${d.truck}" alt="Delivery photo">`:''}<pre>${esc(summary(d))}</pre><button data-a="copy" data-t="${d.id}">Copy summary</button>`}
+function login(){return`<div class="bar"><h1>Delivery Check</h1></div>
+<div class="card"><label for="n">Your name</label><select id="n">${S.workers.map(w=>`<option>${esc(w)}</option>`).join('')}</select>
+<label for="p">4-digit PIN</label><input id="p" class="pin" type="text" inputmode="numeric" maxlength="4" autocomplete="off" name="delivery-pin">
+<label for="r">I am</label><select id="r"><option value="wh">Warehouse (loading the truck)</option><option value="rc">Receiver (on site)</option><option value="sv">Supervisor (creates the list)</option><option value="ad">Admin</option></select>
+<div class="err" id="m"></div><button class="p" data-a="login" style="width:100%">Continue</button></div>`}
+function head(){const r={wh:'Warehouse',rc:'Receiver',sv:'Supervisor',ad:'Admin'}[me.role];return`<div class="bar"><div><h1>Delivery Check</h1><div class="sm">${esc(me.name)} · ${r}</div></div><div><button data-a="refresh">Refresh</button> <button data-a="out">Exit</button></div></div>`}
+function signBox(label,a){return`<div class="sign"><h3>${label}</h3><p class="sm">Enter your PIN to confirm. This makes you responsible for what is recorded.</p><input id="sp" class="pin" type="text" inputmode="numeric" maxlength="4" aria-label="PIN" autocomplete="off" name="delivery-pin2"><div class="err" id="m"></div><button class="s" data-a="${a}" style="width:100%">Sign with PIN</button></div>`}
+function whView(){const d=S.d;if(!d)return'<h2>No delivery yet</h2><div class="card">The admin has not created a delivery. Tap Refresh to check again.</div>';
+ let h=`<h2>${esc(d.project)}</h2>`;
+ if(d.status!=='new')return h+`<div class="card"><span class="tag ok">Loaded</span> Signed by ${esc(d.wh.by)} on ${esc(d.wh.at)}.</div>`;
+ h+='<p class="sm">Check what goes on the truck. Change the sent quantity if you cannot send everything.</p>';
+ d.lines.forEach(l=>{const i=item(l.id);h+=`<div class="card row">${tile(i)}<div class="g"><b>${esc(i.name)}</b><div class="sm">${esc(idesc(i))}</div><div class="sm">Requested: ${l.req}</div><label>Sent</label><input type="number" min="0" value="${l.sent}" data-f="sent" data-id="${l.id}"></div></div>`});
+ return h+signBox('Confirm loading','whsign')}
+function rcView(){const d=S.d;if(!d)return'<h2>No delivery yet</h2><div class="card">Nothing to receive right now. Tap Refresh to check again.</div>';
+ let h=`<h2>${esc(d.project)}</h2>`;
+ if(d.status==='new')return h+'<div class="card">Waiting for the warehouse to load and sign. Tap Refresh when the truck arrives.</div>';
+ h+=`<p class="sm">Loaded by ${esc(d.wh.by)}. Mark every item, using the picture to confirm what it is.</p>`;
+ d.lines.forEach(l=>{const i=item(l.id),b=(k,t,c)=>`<button class="${c}${l.st===k?' on':''}" data-a="st" data-id="${l.id}" data-k="${k}">${t}</button>`;
+  h+=`<div class="card"><div class="row">${tile(i)}<div class="g"><div><span class="q">${l.sent}</span> <b>${esc(i.name)}</b></div><div class="sm">${esc(idesc(i))}</div></div></div>
+<div class="seg">${b('ok','Received','ok')}${b('miss','Missing','bd')}${b('dmg','Damaged','wn')}</div>
+${l.st&&l.st!=='miss'?`<label>How many arrived?</label><input type="number" min="0" value="${l.recv}" data-f="recv" data-id="${l.id}">`:''}
+${l.st?`<label>Note${l.st!=='ok'?' (required)':' (required if short)'}</label><input value="${esc(l.note)}" data-f="note" data-id="${l.id}" placeholder="What happened?">`:''}</div>`});
+ h+=`<div class="card"><b>Delivery photo (optional)</b><p class="sm">Photo of the load or of anything damaged.</p><input type="file" accept="image/*" capture="environment" data-f="truck">${d.truck?`<img class="ph" src="${d.truck}" alt="Delivery photo">`:''}</div>`;
+ return h+signBox('Confirm what you received','rcsign')}
+function newForm(){return`<h2>New list</h2><div class="card"><label for="pj">Project</label><input id="pj"><label for="flt">Search items</label><input id="flt" placeholder="drill, gondola, ladder"><p class="sm">Type the quantity for each item you need. Leave 0 for the rest.</p>${S.items.map(i=>`<div class="row irow" data-n="${esc((i.name+' '+idesc(i)).toLowerCase())}" style="align-items:center;margin:6px 0">${tile(i)}<div class="g"><b>${esc(i.name)}</b></div><input type="number" min="0" value="0" data-q="${i.id}" aria-label="Quantity of ${esc(i.name)}"></div>`).join('')}<div class="err" id="m2"></div><button class="p" data-a="newd">Create list</button></div>`}
+function svView(){const d=S.d;return`<h2>Current delivery</h2><div class="card">${d?`<b>${esc(d.project)}</b><div class="sm">Status: ${d.status==='new'?'Waiting for warehouse':'On the way, waiting for receiver'}</div>`:'No open delivery.'}</div>`+newForm()}
+function adView(){const d=S.d;
+ let h=`<h2>Current delivery</h2><div class="card">${d?`<b>${esc(d.project)}</b><div class="sm">Status: ${d.status==='new'?'Waiting for warehouse':'On the way, waiting for receiver'}</div>`:'No open delivery.'}</div>`;
+ h+=newForm();
+ h+='<h2>Delivery history</h2>';
+ if(!S.hist.length)h+='<div class="card sm">No signed deliveries yet.</div>';
+ S.hist.forEach(x=>{const n=x.lines.filter(l=>cls(l)[1]!=='ok').length;h+=`<details class="card"><summary><b>${esc(x.project)}</b> <span class="tag ${n?'wn':'ok'}">${n?n+' with issues':'All good'}</span><div class="sm">${esc(x.rc.at)}</div></summary>${reportHTML(x)}</details>`});
+ h+='<h2>Catalog</h2><p class="sm">Add a real photo to each item so receivers know what to look for.</p>';
+ S.items.forEach(i=>{h+=`<div class="card row">${tile(i)}<div class="g"><b>${esc(i.name)}</b><div class="sm">${esc(idesc(i))}</div><label class="btn" style="display:inline-block;margin-top:6px">${i.photo?'Change photo':'Add photo'}<input type="file" accept="image/*" data-f="iphoto" data-id="${i.id}" hidden></label></div></div>`});
+ return h+`<h2>Add an item</h2><div class="card"><label for="in">Name</label><input id="in"><label for="id">Description</label><input id="id" placeholder="What does it look like?"><label for="ie">Icon (emoji)</label><input id="ie" value="📦" maxlength="4"><div class="err" id="m3"></div><button class="p" data-a="add">Add to catalog</button></div>`}
+function render(){$('#app').innerHTML=!me?login():head()+({wh:whView,rc:rcView,sv:svView,ad:adView}[me.role])()}
+function readImg(f,cb){const r=new FileReader();r.onload=()=>{const im=new Image();im.onload=()=>{const s=Math.min(1,640/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*s;c.height=im.height*s;c.getContext('2d').drawImage(im,0,0,c.width,c.height);cb(c.toDataURL('image/jpeg',.7))};im.src=r.result};r.readAsDataURL(f)}
+const L=id=>S.d.lines.find(l=>l.id===id);
+const patchD=f=>api('dc_deliveries?id=eq.'+S.d.id,{method:'PATCH',body:JSON.stringify(f)});
+const saveLines=()=>patchD({lines:S.d.lines}).catch(e=>msg('Could not save: '+e.message));
+function pinOk(){if($('#sp').value.trim()!==me.pin){msg('That PIN does not match. Try again.');return false}return true}
+const act={
+async login(){const n=$('#n').value,p=$('#p').value.trim(),r=$('#r').value;
+ if(!/^\d{4}$/.test(p))return msg('Enter your 4-digit PIN.');
+ if(r==='sv'&&![...CFG.supervisors,...CFG.admins].includes(n))return msg('Only supervisors can create lists: '+CFG.supervisors.join(', '));
+ if(r==='ad'&&!CFG.admins.includes(n))return msg('Admin is only for: '+CFG.admins.join(', '));
+ const ok=await api(CFG.workers+'?select=name&name=eq.'+encodeURIComponent(n)+'&pin=eq.'+encodeURIComponent(p));
+ if(!ok.length)return msg('Wrong PIN for that name.');
+ me={name:n,pin:p,role:r};await load();render()},
+out(){me=null;render()},
+async refresh(){await load();render()},
+async whsign(){if(!pinOk())return;await patchD({status:'loaded',wh_by:me.name,wh_at:now(),lines:S.d.lines});await load();render()},
+async st(b){const l=L(b.dataset.id),k=b.dataset.k;l.st=k;l.recv=k==='miss'?0:(l.recv==null||l.recv===0?l.sent:l.recv);await saveLines();render()},
+async rcsign(){const d=S.d;
+ if(d.lines.some(l=>!l.st))return msg('Mark every item as Received, Missing or Damaged.');
+ const bad=d.lines.find(l=>(l.st!=='ok'||l.recv<l.sent)&&!l.note.trim());
+ if(bad)return msg('Add a note for: '+item(bad.id).name);
+ if(!pinOk())return;
+ await patchD({status:'closed',rc_by:me.name,rc_at:now(),lines:d.lines,truck:d.truck||null});await load();render()},
+async newd(){const pj=$('#pj').value.trim(),lines=[];
+ document.querySelectorAll('[data-q]').forEach(e=>{const q=+e.value||0;if(q>0)lines.push({id:e.dataset.q,req:q,sent:q,recv:null,st:'',note:''})});
+ if(!pj)return msg('Enter the project name.','m2');if(!lines.length)return msg('Enter at least one quantity.','m2');
+ await api('dc_deliveries',{method:'POST',body:JSON.stringify({project:pj,lines})});await load();render()},
+async add(){const n=$('#in').value.trim();if(!n)return msg('Enter a name for the item.','m3');
+ await api('dc_items',{method:'POST',body:JSON.stringify({id:'x'+Date.now(),name:n,descr:$('#id').value.trim(),icon:$('#ie').value||'📦'})});await load();render()},
+copy(b){const x=[S.d,...S.hist].find(y=>y&&String(y.id)===b.dataset.t);try{navigator.clipboard.writeText(summary(x));b.textContent='Copied'}catch(e){b.textContent='Select the text above to copy'}}};
+document.addEventListener('click',e=>{const b=e.target.closest('[data-a]');if(b)Promise.resolve(act[b.dataset.a](b)).catch(er=>msg('Error: '+er.message))});
+document.addEventListener('input',e=>{if(e.target.id==='flt'){const q=e.target.value.toLowerCase();document.querySelectorAll('.irow').forEach(r=>{r.style.display=r.dataset.n.includes(q)?'':'none'})}});
+document.addEventListener('change',e=>{const t=e.target,f=t.dataset.f;if(!f)return;const v=t.value,id=t.dataset.id;
+ if(f==='sent'){L(id).sent=Math.max(0,+v||0);saveLines()}
+ else if(f==='recv'){L(id).recv=Math.max(0,+v||0);saveLines()}
+ else if(f==='note'){L(id).note=v;saveLines()}
+ else if(f==='truck'&&t.files[0])readImg(t.files[0],u=>{S.d.truck=u;render()});
+ else if(f==='iphoto'&&t.files[0])readImg(t.files[0],async u=>{await api('dc_items?id=eq.'+id,{method:'PATCH',body:JSON.stringify({photo:u})});await load();render()})});
+(async()=>{try{S.workers=(await api(CFG.workers+'?select=name&order=name')).map(w=>w.name);await load();render()}
+catch(e){$('#app').innerHTML='<div class="card"><h3>Could not connect</h3><p>Check the settings at the top of this file (project URL and workers table name).</p><pre>'+esc(e.message)+'</pre></div>'}})();
+</script></body></html>
