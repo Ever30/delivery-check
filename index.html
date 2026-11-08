@@ -33,12 +33,14 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .tag{display:inline-block;border-radius:6px;padding:2px 8px;font-weight:600;font-size:14px}
 .tag.ok{background:var(--okb);color:var(--ok)}.tag.wn{background:var(--wnb);color:var(--wn)}.tag.bd{background:var(--bdb);color:var(--bd)}
 .pin{-webkit-text-security:disc;letter-spacing:4px}
+#qrbox{display:inline-block;background:#fff;padding:8px;border-radius:8px;margin:8px 0}#qrbox svg{width:240px;height:240px;max-width:100%}
 .err{color:var(--bd);font-weight:600;min-height:22px;margin:8px 0}
 .sign{border:2px dashed var(--ink);border-radius:10px;padding:12px;margin-top:16px}
 .wrap{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:14px}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
 pre{white-space:pre-wrap;background:var(--tile);padding:10px;border-radius:8px;font:13px/1.4 ui-monospace,Menlo,monospace}
 .ph{max-width:100%;max-height:200px;border-radius:8px;margin-top:8px;display:block}
 </style></head><body><main id="app"><p>Loading…</p></main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 <script>
 /* ===== SETTINGS: replace YOUR-PROJECT-ID with your Supabase project URL ===== */
 const CFG={
@@ -46,20 +48,22 @@ const CFG={
   key:'sb_publishable_HgOh_eN_YhnL5DOQI6_pCg_WlCXyv-2',
   workers:'workers',            // table with the columns: name, pin
   admins:['Everardo G.'],       // names allowed to use the Admin role
-  supervisors:['Everardo G.']   // names allowed to create lists (admins can too)
+  supervisors:['Everardo G.','Francisco Vega']   // names allowed to create lists (admins can too)
 };
 /* ============================================================================ */
+const DID=(new URLSearchParams(location.search).get('d')||'').replace(/\D/g,'');
 const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 async function api(p,o={}){const r=await fetch(CFG.url+'/rest/v1/'+p,{...o,headers:{apikey:CFG.key,'Content-Type':'application/json',Prefer:'return=representation'}});
  if(!r.ok)throw new Error(r.status+' '+(await r.text()).slice(0,160));return r.status===204?null:r.json()}
-const S={items:[],workers:[],d:null,hist:[]};let me=null;
+const S={items:[],workers:[],d:null,hist:[]};let me=null,editId=null;
 const norm=r=>{r.wh=r.wh_by?{by:r.wh_by,at:r.wh_at}:null;r.rc=r.rc_by?{by:r.rc_by,at:r.rc_at}:null;return r};
 async function load(){const [it,ac,hi]=await Promise.all([
  api('dc_items?select=*&order=name'),
- api('dc_deliveries?select=*&status=in.(new,loaded)&order=id.desc&limit=1'),
+ api(DID?'dc_deliveries?select=*&id=eq.'+DID:'dc_deliveries?select=*&status=in.(new,loaded)&order=id.desc&limit=1'),
  api('dc_deliveries?select=*&status=eq.closed&order=id.desc&limit=30')]);
  S.items=it;S.d=ac[0]?norm(ac[0]):null;S.hist=hi.map(norm)}
+const nm=l=>(S.items.find(i=>i.id===l.id)||{}).name||l.n||l.id;
 const item=id=>S.items.find(i=>i.id===id)||{name:id,desc:'',icon:'📦',photo:''};
 const now=()=>new Date().toLocaleString();
 const tile=i=>`<div class="t">${i.photo?`<img src="${i.photo}" alt="${esc(i.name)}">`:esc(i.icon)}</div>`;
@@ -68,24 +72,27 @@ function msg(t,id){const m=$('#'+(id||'m'));if(m)m.textContent=t}
 function cls(l){if(l.st==='miss')return['Missing','bd'];if(l.st==='dmg')return['Damaged','bd'];if(l.recv!=null&&l.recv<l.sent)return['Short','wn'];if(l.sent<l.req)return['Sent short','wn'];return['OK','ok']}
 function summary(d){const iss=d.lines.filter(l=>cls(l)[1]!=='ok');
  let t=`DELIVERY REPORT\nProject: ${d.project}\nLoaded by: ${d.wh?d.wh.by+' ('+d.wh.at+')':'-'}\nReceived by: ${d.rc?d.rc.by+' ('+d.rc.at+')':'-'}\nItems: ${d.lines.length}, with issues: ${iss.length}\n`;
- iss.forEach(l=>{t+=`- ${item(l.id).name}: requested ${l.req}, sent ${l.sent}, received ${l.recv==null?'?':l.recv} [${cls(l)[0]}]${l.note?' - '+l.note:''}\n`});return t}
-function reportHTML(d){return`<div class="wrap"><table><tr><th>Item</th><th>Req</th><th>Sent</th><th>Got</th><th>Status</th><th>Note</th></tr>${d.lines.map(l=>{const c=cls(l);return`<tr><td>${esc(item(l.id).name)}</td><td>${l.req}</td><td>${l.sent}</td><td>${l.recv==null?'-':l.recv}</td><td><span class="tag ${c[1]}">${c[0]}</span></td><td>${esc(l.note)}</td></tr>`}).join('')}</table></div>${d.truck?`<img class="ph" src="${d.truck}" alt="Delivery photo">`:''}<pre>${esc(summary(d))}</pre><button data-a="copy" data-t="${d.id}">Copy summary</button>`}
+ iss.forEach(l=>{t+=`- ${nm(l)}: requested ${l.req}, sent ${l.sent}, received ${l.recv==null?'?':l.recv} [${cls(l)[0]}]${l.note?' - '+l.note:''}\n`});return t}
+function reportHTML(d){return`<div class="wrap"><table><tr><th>Item</th><th>Req</th><th>Sent</th><th>Got</th><th>Status</th><th>Note</th></tr>${d.lines.map(l=>{const c=cls(l);return`<tr><td>${esc(nm(l))}</td><td>${l.req}</td><td>${l.sent}</td><td>${l.recv==null?'-':l.recv}</td><td><span class="tag ${c[1]}">${c[0]}</span></td><td>${esc(l.note)}</td></tr>`}).join('')}</table></div>${d.truck?`<img class="ph" src="${d.truck}" alt="Delivery photo">`:''}<pre>${esc(summary(d))}</pre><button data-a="copy" data-t="${d.id}">Copy summary</button>`}
 function login(){return`<div class="bar"><h1>Delivery Check</h1></div>
-<div class="card"><label for="n">Your name</label><select id="n">${S.workers.map(w=>`<option>${esc(w)}</option>`).join('')}</select>
+${DID&&S.d?`<div class="card"><span class="sm">You are receiving</span><h3>${esc(S.d.project)}</h3></div>`:''}<div class="card"><label for="n">Your name</label><select id="n">${S.workers.map(w=>`<option>${esc(w)}</option>`).join('')}</select>
 <label for="p">4-digit PIN</label><input id="p" class="pin" type="text" inputmode="numeric" maxlength="4" autocomplete="off" name="delivery-pin">
-<label for="r">I am</label><select id="r"><option value="wh">Warehouse (loading the truck)</option><option value="rc">Receiver (on site)</option><option value="sv">Supervisor (creates the list)</option><option value="ad">Admin</option></select>
-<div class="err" id="m"></div><button class="p" data-a="login" style="width:100%">Continue</button></div>`}
+${DID?'':`<label for="r">I am</label><select id="r"><option value="wh">Warehouse (loading the truck)</option><option value="rc">Receiver (on site)</option><option value="sv">Supervisor (creates the list)</option><option value="ad">Admin</option></select>`}
+<div class="err" id="m"></div><button class="p" data-a="login" style="width:100%">Continue</button><p class="sm" style="text-align:center;margin:10px 0 0">v4</p></div>`}
 function head(){const r={wh:'Warehouse',rc:'Receiver',sv:'Supervisor',ad:'Admin'}[me.role];return`<div class="bar"><div><h1>Delivery Check</h1><div class="sm">${esc(me.name)} · ${r}</div></div><div><button data-a="refresh">Refresh</button> <button data-a="out">Exit</button></div></div>`}
 function signBox(label,a){return`<div class="sign"><h3>${label}</h3><p class="sm">Enter your PIN to confirm. This makes you responsible for what is recorded.</p><input id="sp" class="pin" type="text" inputmode="numeric" maxlength="4" aria-label="PIN" autocomplete="off" name="delivery-pin2"><div class="err" id="m"></div><button class="s" data-a="${a}" style="width:100%">Sign with PIN</button></div>`}
+const qrCard=d=>`<div class="card" style="text-align:center"><h3>Show this QR to whoever receives the tools</h3><p class="sm">They scan it with the phone camera, enter their name and PIN, and check the list.</p><div id="qrbox"></div><p class="sm" style="word-break:break-all">${esc(location.origin+location.pathname+'?d='+d.id)}</p><button data-a="copylink">Copy link</button></div>`;
+function drawQR(){const q=$('#qrbox');if(!q||!S.d)return;try{const qr=qrcode(0,'M');qr.addData(location.origin+location.pathname+'?d='+S.d.id);qr.make();q.innerHTML=qr.createSvgTag({cellSize:6,margin:2,scalable:true})}catch(e){q.textContent='The QR could not be drawn. Share the link below instead.'}}
 function whView(){const d=S.d;if(!d)return'<h2>No delivery yet</h2><div class="card">The admin has not created a delivery. Tap Refresh to check again.</div>';
  let h=`<h2>${esc(d.project)}</h2>`;
- if(d.status!=='new')return h+`<div class="card"><span class="tag ok">Loaded</span> Signed by ${esc(d.wh.by)} on ${esc(d.wh.at)}.</div>`;
+ if(d.status!=='new')return h+`<div class="card"><span class="tag ok">Loaded</span> Signed by ${esc(d.wh.by)} on ${esc(d.wh.at)}.</div>`+qrCard(d);
  h+='<p class="sm">Check what goes on the truck. Change the sent quantity if you cannot send everything.</p>';
  d.lines.forEach(l=>{const i=item(l.id);h+=`<div class="card row">${tile(i)}<div class="g"><b>${esc(i.name)}</b><div class="sm">${esc(idesc(i))}</div><div class="sm">Requested: ${l.req}</div><label>Sent</label><input type="number" min="0" value="${l.sent}" data-f="sent" data-id="${l.id}"></div></div>`});
  return h+signBox('Confirm loading','whsign')}
 function rcView(){const d=S.d;if(!d)return'<h2>No delivery yet</h2><div class="card">Nothing to receive right now. Tap Refresh to check again.</div>';
  let h=`<h2>${esc(d.project)}</h2>`;
  if(d.status==='new')return h+'<div class="card">Waiting for the warehouse to load and sign. Tap Refresh when the truck arrives.</div>';
+ if(d.status==='closed')return h+'<div class="card"><span class="tag ok">Signed</span> This delivery is complete.</div>'+reportHTML(d);
  h+=`<p class="sm">Loaded by ${esc(d.wh.by)}. Mark every item, using the picture to confirm what it is.</p>`;
  d.lines.forEach(l=>{const i=item(l.id),b=(k,t,c)=>`<button class="${c}${l.st===k?' on':''}" data-a="st" data-id="${l.id}" data-k="${k}">${t}</button>`;
   h+=`<div class="card"><div class="row">${tile(i)}<div class="g"><div><span class="q">${l.sent}</span> <b>${esc(i.name)}</b></div><div class="sm">${esc(idesc(i))}</div></div></div>
@@ -95,24 +102,24 @@ ${l.st?`<label>Note${l.st!=='ok'?' (required)':' (required if short)'}</label><i
  h+=`<div class="card"><b>Delivery photo (optional)</b><p class="sm">Photo of the load or of anything damaged.</p><input type="file" accept="image/*" capture="environment" data-f="truck">${d.truck?`<img class="ph" src="${d.truck}" alt="Delivery photo">`:''}</div>`;
  return h+signBox('Confirm what you received','rcsign')}
 function newForm(){return`<h2>New list</h2><div class="card"><label for="pj">Project</label><input id="pj"><label for="flt">Search items</label><input id="flt" placeholder="drill, gondola, ladder"><p class="sm">Type the quantity for each item you need. Leave 0 for the rest.</p>${S.items.map(i=>`<div class="row irow" data-n="${esc((i.name+' '+idesc(i)).toLowerCase())}" style="align-items:center;margin:6px 0">${tile(i)}<div class="g"><b>${esc(i.name)}</b></div><input type="number" min="0" value="0" data-q="${i.id}" aria-label="Quantity of ${esc(i.name)}"></div>`).join('')}<div class="err" id="m2"></div><button class="p" data-a="newd">Create list</button></div>`}
-function svView(){const d=S.d;return`<h2>Current delivery</h2><div class="card">${d?`<b>${esc(d.project)}</b><div class="sm">Status: ${d.status==='new'?'Waiting for warehouse':'On the way, waiting for receiver'}</div>`:'No open delivery.'}</div>`+newForm()}
+function svView(){const d=S.d;return`<h2>Current delivery</h2><div class="card">${d?`<b>${esc(d.project)}</b><div class="sm">Status: ${d.status==='new'?'Waiting for warehouse':'On the way, waiting for receiver'}</div>`:'No open delivery.'}</div>`+(d?qrCard(d):'')+newForm()}
 function adView(){const d=S.d;
- let h=`<h2>Current delivery</h2><div class="card">${d?`<b>${esc(d.project)}</b><div class="sm">Status: ${d.status==='new'?'Waiting for warehouse':'On the way, waiting for receiver'}</div>`:'No open delivery.'}</div>`;
+ let h=`<h2>Current delivery</h2><div class="card">${d?`<b>${esc(d.project)}</b><div class="sm">Status: ${d.status==='new'?'Waiting for warehouse':'On the way, waiting for receiver'}</div>`:'No open delivery.'}</div>`+(d?qrCard(d):'');
  h+=newForm();
  h+='<h2>Delivery history</h2>';
  if(!S.hist.length)h+='<div class="card sm">No signed deliveries yet.</div>';
  S.hist.forEach(x=>{const n=x.lines.filter(l=>cls(l)[1]!=='ok').length;h+=`<details class="card"><summary><b>${esc(x.project)}</b> <span class="tag ${n?'wn':'ok'}">${n?n+' with issues':'All good'}</span><div class="sm">${esc(x.rc.at)}</div></summary>${reportHTML(x)}</details>`});
  h+='<h2>Catalog</h2><p class="sm">Add a real photo to each item so receivers know what to look for.</p>';
- S.items.forEach(i=>{h+=`<div class="card row">${tile(i)}<div class="g"><b>${esc(i.name)}</b><div class="sm">${esc(idesc(i))}</div><label class="btn" style="display:inline-block;margin-top:6px">${i.photo?'Change photo':'Add photo'}<input type="file" accept="image/*" data-f="iphoto" data-id="${i.id}" hidden></label></div></div>`});
+ S.items.forEach(i=>{h+=i.id===editId?`<div class="card"><label for="en">Name</label><input id="en" value="${esc(i.name)}"><label for="ed">Description</label><input id="ed" value="${esc(idesc(i))}"><label for="ei">Icon (emoji)</label><input id="ei" value="${esc(i.icon)}" maxlength="4"><div class="err" id="m4"></div><div class="seg"><button class="p" data-a="saveit" data-id="${i.id}">Save</button><button data-a="cancelit">Cancel</button></div></div>`:`<div class="card row">${tile(i)}<div class="g"><b>${esc(i.name)}</b><div class="sm">${esc(idesc(i))}</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><label class="btn">${i.photo?'Change photo':'Add photo'}<input type="file" accept="image/*" data-f="iphoto" data-id="${i.id}" hidden></label><button data-a="editit" data-id="${i.id}">Edit</button><button data-a="delit" data-id="${i.id}">Delete</button></div></div></div>`});
  return h+`<h2>Add an item</h2><div class="card"><label for="in">Name</label><input id="in"><label for="id">Description</label><input id="id" placeholder="What does it look like?"><label for="ie">Icon (emoji)</label><input id="ie" value="📦" maxlength="4"><div class="err" id="m3"></div><button class="p" data-a="add">Add to catalog</button></div>`}
-function render(){$('#app').innerHTML=!me?login():head()+({wh:whView,rc:rcView,sv:svView,ad:adView}[me.role])()}
+function render(){setTimeout(drawQR,0);$('#app').innerHTML=!me?login():head()+({wh:whView,rc:rcView,sv:svView,ad:adView}[me.role])()}
 function readImg(f,cb){const r=new FileReader();r.onload=()=>{const im=new Image();im.onload=()=>{const s=Math.min(1,640/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*s;c.height=im.height*s;c.getContext('2d').drawImage(im,0,0,c.width,c.height);cb(c.toDataURL('image/jpeg',.7))};im.src=r.result};r.readAsDataURL(f)}
 const L=id=>S.d.lines.find(l=>l.id===id);
 const patchD=f=>api('dc_deliveries?id=eq.'+S.d.id,{method:'PATCH',body:JSON.stringify(f)});
 const saveLines=()=>patchD({lines:S.d.lines}).catch(e=>msg('Could not save: '+e.message));
 function pinOk(){if($('#sp').value.trim()!==me.pin){msg('That PIN does not match. Try again.');return false}return true}
 const act={
-async login(){const n=$('#n').value,p=$('#p').value.trim(),r=$('#r').value;
+async login(){const n=$('#n').value,p=$('#p').value.trim(),r=DID?'rc':$('#r').value;
  if(!/^\d{4}$/.test(p))return msg('Enter your 4-digit PIN.');
  if(r==='sv'&&![...CFG.supervisors,...CFG.admins].includes(n))return msg('Only supervisors can create lists: '+CFG.supervisors.join(', '));
  if(r==='ad'&&!CFG.admins.includes(n))return msg('Admin is only for: '+CFG.admins.join(', '));
@@ -120,17 +127,24 @@ async login(){const n=$('#n').value,p=$('#p').value.trim(),r=$('#r').value;
  if(ok!==true)return msg('Wrong PIN for that name.');
  me={name:n,pin:p,role:r};await load();render()},
 out(){me=null;render()},
+editit(b){editId=b.dataset.id;render()},
+cancelit(){editId=null;render()},
+async saveit(b){const n=$('#en').value.trim();if(!n)return msg('The name cannot be empty.','m4');
+ await api('dc_items?id=eq.'+encodeURIComponent(b.dataset.id),{method:'PATCH',body:JSON.stringify({name:n,descr:$('#ed').value.trim(),icon:$('#ei').value||'📦'})});editId=null;await load();render()},
+async delit(b){const i=item(b.dataset.id);if(!confirm('Delete "'+i.name+'" from the catalog?\n\nPast reports keep the name. This cannot be undone.'))return;
+ await api('dc_items?id=eq.'+encodeURIComponent(b.dataset.id),{method:'DELETE'});await load();render()},
+copylink(b){try{navigator.clipboard.writeText(location.origin+location.pathname+'?d='+S.d.id);b.textContent='Copied'}catch(e){b.textContent='Select the link above to copy'}},
 async refresh(){await load();render()},
 async whsign(){if(!pinOk())return;await patchD({status:'loaded',wh_by:me.name,wh_at:now(),lines:S.d.lines});await load();render()},
 async st(b){const l=L(b.dataset.id),k=b.dataset.k;l.st=k;l.recv=k==='miss'?0:(l.recv==null||l.recv===0?l.sent:l.recv);await saveLines();render()},
 async rcsign(){const d=S.d;
  if(d.lines.some(l=>!l.st))return msg('Mark every item as Received, Missing or Damaged.');
  const bad=d.lines.find(l=>(l.st!=='ok'||l.recv<l.sent)&&!l.note.trim());
- if(bad)return msg('Add a note for: '+item(bad.id).name);
+ if(bad)return msg('Add a note for: '+nm(bad));
  if(!pinOk())return;
  await patchD({status:'closed',rc_by:me.name,rc_at:now(),lines:d.lines,truck:d.truck||null});await load();render()},
 async newd(){const pj=$('#pj').value.trim(),lines=[];
- document.querySelectorAll('[data-q]').forEach(e=>{const q=+e.value||0;if(q>0)lines.push({id:e.dataset.q,req:q,sent:q,recv:null,st:'',note:''})});
+ document.querySelectorAll('[data-q]').forEach(e=>{const q=+e.value||0;if(q>0)lines.push({id:e.dataset.q,n:item(e.dataset.q).name,req:q,sent:q,recv:null,st:'',note:''})});
  if(!pj)return msg('Enter the project name.','m2');if(!lines.length)return msg('Enter at least one quantity.','m2');
  await api('dc_deliveries',{method:'POST',body:JSON.stringify({project:pj,lines})});await load();render()},
 async add(){const n=$('#in').value.trim();if(!n)return msg('Enter a name for the item.','m3');
