@@ -56,13 +56,15 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 async function api(p,o={}){const r=await fetch(CFG.url+'/rest/v1/'+p,{...o,headers:{apikey:CFG.key,'Content-Type':'application/json',Prefer:'return=representation'}});
  if(!r.ok)throw new Error(r.status+' '+(await r.text()).slice(0,160));return r.status===204?null:r.json()}
-const S={items:[],workers:[],d:null,hist:[]};let me=null,editId=null;
+const S={items:[],workers:[],d:null,hist:[]};let me=null,editId=null,selId=null;
 const norm=r=>{r.wh=r.wh_by?{by:r.wh_by,at:r.wh_at}:null;r.rc=r.rc_by?{by:r.rc_by,at:r.rc_at}:null;return r};
-async function load(){const [it,ac,hi]=await Promise.all([
+async function load(){const [it,op,hi]=await Promise.all([
  api('dc_items?select=*&order=name'),
- api(DID?'dc_deliveries?select=*&id=eq.'+DID:'dc_deliveries?select=*&status=in.(new,loaded)&order=id.desc&limit=1'),
+ api('dc_deliveries?select=*&status=in.(new,loaded)&order=id.desc'),
  api('dc_deliveries?select=*&status=eq.closed&order=id.desc&limit=30')]);
- S.items=it;S.d=ac[0]?norm(ac[0]):null;S.hist=hi.map(norm)}
+ S.items=it;S.open=op.map(norm);S.hist=hi.map(norm);
+ if(DID){const r=await api('dc_deliveries?select=*&id=eq.'+DID);S.d=r[0]?norm(r[0]):null}
+ else S.d=S.open.find(x=>x.id===selId)||S.hist.find(x=>x.id===selId)||null}
 const nm=l=>(S.items.find(i=>i.id===l.id)||{}).name||l.n||l.id;
 const item=id=>S.items.find(i=>i.id===id)||{name:id,desc:'',icon:'📦',photo:''};
 const now=()=>new Date().toLocaleString();
@@ -78,19 +80,22 @@ function login(){return`<div class="bar"><h1>Delivery Check</h1></div>
 ${DID&&S.d?`<div class="card"><span class="sm">You are receiving</span><h3>${esc(S.d.project)}</h3></div>`:''}<div class="card"><label for="n">Your name</label><select id="n">${S.workers.map(w=>`<option>${esc(w)}</option>`).join('')}</select>
 <label for="p">4-digit PIN</label><input id="p" class="pin" type="text" inputmode="numeric" maxlength="4" autocomplete="off" name="delivery-pin">
 ${DID?'':`<label for="r">I am</label><select id="r"><option value="wh">Warehouse (loading the truck)</option><option value="rc">Receiver (on site)</option><option value="sv">Supervisor (creates the list)</option><option value="ad">Admin</option></select>`}
-<div class="err" id="m"></div><button class="p" data-a="login" style="width:100%">Continue</button><p class="sm" style="text-align:center;margin:10px 0 0">v4</p></div>`}
+<div class="err" id="m"></div><button class="p" data-a="login" style="width:100%">Continue</button><p class="sm" style="text-align:center;margin:10px 0 0">v5</p></div>`}
 function head(){const r={wh:'Warehouse',rc:'Receiver',sv:'Supervisor',ad:'Admin'}[me.role];return`<div class="bar"><div><h1>Delivery Check</h1><div class="sm">${esc(me.name)} · ${r}</div></div><div><button data-a="refresh">Refresh</button> <button data-a="out">Exit</button></div></div>`}
 function signBox(label,a){return`<div class="sign"><h3>${label}</h3><p class="sm">Enter your PIN to confirm. This makes you responsible for what is recorded.</p><input id="sp" class="pin" type="text" inputmode="numeric" maxlength="4" aria-label="PIN" autocomplete="off" name="delivery-pin2"><div class="err" id="m"></div><button class="s" data-a="${a}" style="width:100%">Sign with PIN</button></div>`}
 const qrCard=d=>`<div class="card" style="text-align:center"><h3>Show this QR to whoever receives the tools</h3><p class="sm">They scan it with the phone camera, enter their name and PIN, and check the list.</p><div id="qrbox"></div><p class="sm" style="word-break:break-all">${esc(location.origin+location.pathname+'?d='+d.id)}</p><button data-a="copylink">Copy link</button></div>`;
 function drawQR(){const q=$('#qrbox');if(!q||!S.d)return;try{const qr=qrcode(0,'M');qr.addData(location.origin+location.pathname+'?d='+S.d.id);qr.make();q.innerHTML=qr.createSvgTag({cellSize:6,margin:2,scalable:true})}catch(e){q.textContent='The QR could not be drawn. Share the link below instead.'}}
-function whView(){const d=S.d;if(!d)return'<h2>No delivery yet</h2><div class="card">The admin has not created a delivery. Tap Refresh to check again.</div>';
- let h=`<h2>${esc(d.project)}</h2>`;
+const back=()=>(!DID&&selId)?'<button data-a="back" style="margin-bottom:6px">← All deliveries</button>':'';
+function listView(btn){return`<h2>Open deliveries</h2>`+(S.open.length?S.open.map(x=>`<div class="card row" style="align-items:center"><div class="g"><b>${esc(x.project)}</b><div class="sm">${esc(new Date(x.created_at).toLocaleString())}</div><span class="tag ${x.status==='new'?'wn':'ok'}">${x.status==='new'?'To load':'Loaded'}</span></div><button class="p" data-a="pick" data-id="${x.id}">${btn||'Open'}</button></div>`).join(''):'<div class="card">No open deliveries. Tap Refresh to check again.</div>')}
+const selBlock=()=>S.d&&S.d.status!=='closed'?`<h2>${esc(S.d.project)}</h2>`+qrCard(S.d)+`<button data-a="cancel" data-id="${S.d.id}">Cancel this delivery</button>`:'';
+function whView(){const d=S.d;if(!d)return listView();
+ let h=back()+`<h2>${esc(d.project)}</h2>`;
  if(d.status!=='new')return h+`<div class="card"><span class="tag ok">Loaded</span> Signed by ${esc(d.wh.by)} on ${esc(d.wh.at)}.</div>`+qrCard(d);
  h+='<p class="sm">Check what goes on the truck. Change the sent quantity if you cannot send everything.</p>';
  d.lines.forEach(l=>{const i=item(l.id);h+=`<div class="card row">${tile(i)}<div class="g"><b>${esc(i.name)}</b><div class="sm">${esc(idesc(i))}</div><div class="sm">Requested: ${l.req}</div><label>Sent</label><input type="number" min="0" value="${l.sent}" data-f="sent" data-id="${l.id}"></div></div>`});
  return h+signBox('Confirm loading','whsign')}
-function rcView(){const d=S.d;if(!d)return'<h2>No delivery yet</h2><div class="card">Nothing to receive right now. Tap Refresh to check again.</div>';
- let h=`<h2>${esc(d.project)}</h2>`;
+function rcView(){const d=S.d;if(!d)return DID?'<div class="card">This delivery link is not valid, or the delivery was cancelled.</div>':listView();
+ let h=back()+`<h2>${esc(d.project)}</h2>`;
  if(d.status==='new')return h+'<div class="card">Waiting for the warehouse to load and sign. Tap Refresh when the truck arrives.</div>';
  if(d.status==='closed')return h+'<div class="card"><span class="tag ok">Signed</span> This delivery is complete.</div>'+reportHTML(d);
  h+=`<p class="sm">Loaded by ${esc(d.wh.by)}. Mark every item, using the picture to confirm what it is.</p>`;
@@ -102,9 +107,9 @@ ${l.st?`<label>Note${l.st!=='ok'?' (required)':' (required if short)'}</label><i
  h+=`<div class="card"><b>Delivery photo (optional)</b><p class="sm">Photo of the load or of anything damaged.</p><input type="file" accept="image/*" capture="environment" data-f="truck">${d.truck?`<img class="ph" src="${d.truck}" alt="Delivery photo">`:''}</div>`;
  return h+signBox('Confirm what you received','rcsign')}
 function newForm(){return`<h2>New list</h2><div class="card"><label for="pj">Project</label><input id="pj"><label for="flt">Search items</label><input id="flt" placeholder="drill, gondola, ladder"><p class="sm">Type the quantity for each item you need. Leave 0 for the rest.</p>${S.items.map(i=>`<div class="row irow" data-n="${esc((i.name+' '+idesc(i)).toLowerCase())}" style="align-items:center;margin:6px 0">${tile(i)}<div class="g"><b>${esc(i.name)}</b></div><input type="number" min="0" value="0" data-q="${i.id}" aria-label="Quantity of ${esc(i.name)}"></div>`).join('')}<div class="err" id="m2"></div><button class="p" data-a="newd">Create list</button></div>`}
-function svView(){const d=S.d;return`<h2>Current delivery</h2><div class="card">${d?`<b>${esc(d.project)}</b><div class="sm">Status: ${d.status==='new'?'Waiting for warehouse':'On the way, waiting for receiver'}</div>`:'No open delivery.'}</div>`+(d?qrCard(d):'')+newForm()}
+function svView(){return listView('Show QR')+selBlock()+newForm()}
 function adView(){const d=S.d;
- let h=`<h2>Current delivery</h2><div class="card">${d?`<b>${esc(d.project)}</b><div class="sm">Status: ${d.status==='new'?'Waiting for warehouse':'On the way, waiting for receiver'}</div>`:'No open delivery.'}</div>`+(d?qrCard(d):'');
+ let h=listView('Show QR')+selBlock();
  h+=newForm();
  h+='<h2>Delivery history</h2>';
  if(!S.hist.length)h+='<div class="card sm">No signed deliveries yet.</div>';
@@ -126,7 +131,10 @@ async login(){const n=$('#n').value,p=$('#p').value.trim(),r=DID?'rc':$('#r').va
  const ok=await api('rpc/dc_check_pin',{method:'POST',body:JSON.stringify({p_name:n,p_pin:p})});
  if(ok!==true)return msg('Wrong PIN for that name.');
  me={name:n,pin:p,role:r};await load();render()},
-out(){me=null;render()},
+out(){me=null;selId=null;render()},
+async pick(b){selId=+b.dataset.id;await load();render()},
+async back(){selId=null;await load();render()},
+async cancel(b){if(!confirm('Cancel "'+S.d.project+'"? The list will be deleted.'))return;await api('dc_deliveries?id=eq.'+b.dataset.id,{method:'DELETE'});selId=null;await load();render()},
 editit(b){editId=b.dataset.id;render()},
 cancelit(){editId=null;render()},
 async saveit(b){const n=$('#en').value.trim();if(!n)return msg('The name cannot be empty.','m4');
@@ -146,7 +154,7 @@ async rcsign(){const d=S.d;
 async newd(){const pj=$('#pj').value.trim(),lines=[];
  document.querySelectorAll('[data-q]').forEach(e=>{const q=+e.value||0;if(q>0)lines.push({id:e.dataset.q,n:item(e.dataset.q).name,req:q,sent:q,recv:null,st:'',note:''})});
  if(!pj)return msg('Enter the project name.','m2');if(!lines.length)return msg('Enter at least one quantity.','m2');
- await api('dc_deliveries',{method:'POST',body:JSON.stringify({project:pj,lines})});await load();render()},
+ const r=await api('dc_deliveries',{method:'POST',body:JSON.stringify({project:pj,lines})});selId=r[0].id;await load();render()},
 async add(){const n=$('#in').value.trim();if(!n)return msg('Enter a name for the item.','m3');
  await api('dc_items',{method:'POST',body:JSON.stringify({id:'x'+Date.now(),name:n,descr:$('#id').value.trim(),icon:$('#ie').value||'📦'})});await load();render()},
 copy(b){const x=[S.d,...S.hist].find(y=>y&&String(y.id)===b.dataset.t);try{navigator.clipboard.writeText(summary(x));b.textContent='Copied'}catch(e){b.textContent='Select the text above to copy'}}};
